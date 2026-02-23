@@ -8,7 +8,7 @@ from geneticengine.evaluation.budget import SearchBudget
 from geneticengine.evaluation.tracker import (
     ProgressTracker,
 )
-from geneticengine.solutions.individual import Individual
+from geneticengine.solutions.individual import Individual, PhenotypicIndividual
 from geneticengine.algorithms.gp.operators.combinators import ParallelStep, SequenceStep
 from geneticengine.algorithms.gp.operators.crossover import GenericCrossoverStep
 from geneticengine.algorithms.gp.operators.elitism import ElitismStep
@@ -109,5 +109,72 @@ class GeneticProgramming(HeuristicSearch):
                 self.tracker,
                 generation,
             )
+
+        return self.tracker.get_best_individuals()
+
+class GeneticProgrammingTwoPhase(GeneticProgramming):
+    """Genetic Programming variant with a two-phase lifecycle per generation:
+    generate individuals -> precompute hook -> evaluate population.
+    """
+
+    def precompute_population(self, individuals: list[PhenotypicIndividual], generation: int) -> None:
+        """Override in downstream pipelines to prepare external artifacts before evaluation."""
+        pass
+
+    def _generate_initial_individuals(self) -> list[PhenotypicIndividual]:
+        assert isinstance(self.representation, RepresentationWithMutation)
+        assert isinstance(self.representation, RepresentationWithCrossover)
+
+        generation = 0
+        logger.debug("Generating initial population")
+        individuals = list(
+            self.population_initializer.initialize(
+                self.problem,
+                self.representation,
+                self.random,
+                self.population_size,
+            ),
+        )
+        for ind in individuals:
+            ind.metadata["generation"] = generation
+        return individuals
+
+    def _generate_next_individuals(
+        self,
+        current_individuals: list[PhenotypicIndividual],
+        generation: int,
+    ) -> list[PhenotypicIndividual]:
+        logger.debug(f"Generating population at generation {generation}")
+        next_individuals = list(
+            self.step.apply(
+                self.problem,
+                self.tracker.evaluator,
+                self.representation,
+                self.random,
+                iter(current_individuals),
+                self.population_size,
+                generation,
+            ),
+        )
+        for ind in next_individuals:
+            ind.metadata["generation"] = generation
+        return next_individuals
+
+    def perform_search(self) -> list[Individual] | None:
+        generation = 0
+
+        current_individuals = self._generate_initial_individuals()
+
+        self.precompute_population(current_individuals, generation)
+        current_population = Population(iter(current_individuals), self.tracker, generation=generation)
+
+        while not self.is_done():
+            generation += 1
+            next_individuals = self._generate_next_individuals(
+                current_population.get_individuals(),
+                generation,
+            )
+            self.precompute_population(next_individuals, generation)
+            current_population = Population(iter(next_individuals), self.tracker, generation=generation)
 
         return self.tracker.get_best_individuals()
