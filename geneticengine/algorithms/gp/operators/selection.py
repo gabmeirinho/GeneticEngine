@@ -219,8 +219,9 @@ class WeightedLexicaseSelection(LexicaseSelection):
 class PriorityLexicaseSelection(LexicaseSelection):
     """
     Priority Lexicase:
-    - lower value = higher priority
-    - random order within same priority level
+    - Lower integer means higher priority
+    - Objectives in the same priority level are shuffled.
+    Example: objective_priorities=[1, 1, 2, 3] -> [0/1 shuffled], then 2, then 3.
     """
 
     def __init__(self, epsilon: bool = True, objective_priorities: list[int] | None = None):
